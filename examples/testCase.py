@@ -223,7 +223,7 @@ if (1000*dutyCycle) > 0.95:
 
 prfLow,nyqHigh,nyqLow = returnPRF(prfHigh,prfRatio,wLen)
 
-x,y,radius,azimuth,dopplerTrue = makeGrid(prfHigh,prfLow,pulseLength,rangeLim = 100,elevation=1.0)
+x,y,radius,azimuth,dopplerTrue = makeGrid(prfHigh,pulseLength,rangeLim = 100,elevation=1.0)
 
 VHigh,VLow,vavg = staggeredPRT(dopplerTrue,prfHigh,prfLow,wLen)
 
@@ -236,15 +236,15 @@ velCorrected = prtCorrectNew(vavg.copy().T,radius*1000,azimuth,nyqL=nyqLow,nyqH=
 #Compute stats
 diffCorrected = dopplerTrue - velCorrected
 
-errors = np.where(np.abs(diff)>(nyqHigh+nyqLow) / 2.)[0].shape[0]
-remaining = np.where(np.abs(diffCorrected)>(nyqHigh+nyqLow) / 2.)[0].shape[0]
+errors = np.where(np.abs(diff)>5)[0].shape[0]
+remaining = np.where(np.abs(diffCorrected)>5)[0].shape[0]
 
 fig = plt.figure(1)
-fig.set_size_inches(15,5)
+fig.set_size_inches(5,15)
 #for n,vel,title in \
 #    zip(range(221,225,1),[dopplerTrue,velCorrected,VHigh,VLow],['True','Estimated','High PRF','Low PRF']):
 for n,vel,title in \
-     zip(range(131,134,1),[dopplerTrue,vavg,velCorrected],['True','Estimated','Corrected']):
+     zip(range(311,314,1),[dopplerTrue,vavg,velCorrected],['True','Estimated','Corrected']):
     
     ax = fig.add_subplot(n)
 
@@ -252,9 +252,9 @@ for n,vel,title in \
 
     ax.set_title(title)
 
-    plt.colorbar(a)
+fig.subplots_adjust(left=0.07,bottom=0.15,top=0.96,right=0.97)
+plt.colorbar(a,orientation='horizontal',cax =fig.add_axes([0.07,0.05,0.9,0.03]))
 
 print("%d of %d errors estimated remaining..."%(remaining,errors))
-fig.tight_layout()
 
 fig.savefig('testCase.png',dpi=300)

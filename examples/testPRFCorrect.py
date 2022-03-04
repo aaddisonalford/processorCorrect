@@ -4,6 +4,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 
+def smoothVel(vel,spatial,filter):
+
+    #Smooth interpolated field.
+    velSmooth = savgol_filter(vel, filter, 3, mode='interp',axis=1)
+
+    #Change -32768 to NaNs.
+    velSmooth[velSmooth < -1000] = np.nan
+
+    #Create difference field
+    diff = vel.filled(fill_value=np.nan) - velSmooth
+
+    return velSmooth,diff
+
 def prtCorrectNew(velField,radius,azimuth,fnyq = 0,nyqL=0,nyqH=0):
 
     '''
@@ -55,39 +68,56 @@ def prtCorrectNew(velField,radius,azimuth,fnyq = 0,nyqL=0,nyqH=0):
         velNew = vel.copy().T
 
         mu,stdAz = norm.fit(np.ma.masked_invalid(diffAz).compressed())
-
-        diffAz = np.ma.masked_where(np.abs(diffAz) < 3*stdAz,diffAz).filled(fill_value = np.nan)
-
+            
+        #Compute the standard deviation of the radial difference field.
         mu,stdRad = norm.fit(np.ma.masked_invalid(diffRad).compressed())
 
-        print(stdAz,stdRad)
+        if (max([nyqL,nyqH])) < 3*stdRad and (max([nyqL,nyqH])) < 3*stdAz:
+            radMask,azMask = min([nyqL,nyqH]),min([nyqL,nyqH])
+        else:
+            radMask,azMask = 3*stdRad,3*stdAz
 
-        diffRad = np.ma.masked_where(np.abs(diffRad) < 3*stdRad,diffRad).filled(fill_value = np.nan)
+        #Fill NaNs where azimuthal difference is < 3*(standard deviation).
+        diffAz = np.ma.masked_where(np.abs(diffAz) < azMask,diffAz).filled(fill_value = np.nan)
         
-        possibleSolutions = np.empty((10,velNew.shape[0],velNew.shape[1]))
-        differences = np.empty((10,velNew.shape[0],velNew.shape[1]))
+        #Fill NaNs where radial difference is < 3*(standard deviation).
+        diffRad = np.ma.masked_where(np.abs(diffRad) < radMask,diffRad).filled(fill_value = np.nan) 
+        
+        possibleSolutions = np.empty((16,velNew.shape[0],velNew.shape[1]))
+        differences = np.empty((16,velNew.shape[0],velNew.shape[1]))
         possibleSolutions[0,:] = velNew.copy()
         differences[0,:] = velNew.copy() - velSmoothMean
+        mask = np.zeros(velNew.shape)
         
         count = 1
         bound = fnyq
-        for n1 in [1,2,3]:
-            for n2 in [1,2,3]:
+        for n1 in [0,1,2,3]:
+            for n2 in [0,1,2,3]:
+                if ((n1 == 0) & (n2 == 0)):
+                    continue
                 nyq = n1*nyqL + n2*nyqH                  
                 #### Both
                 velPossible = velNew.copy()
-                positiveIndices = np.where((diffAz != np.nan) & (diffRad != np.nan) & \
-                    (diffMean > nyq - bound) & (diffMean < nyq + bound))
+                
+                if nyq-bound < 0: limit = 0
+                else: limit=nyq-bound
+                positiveIndices = np.where(((np.isnan(diffAz) != True) & (np.isnan(diffRad) != True)) & \
+                    (diffMean > limit) & (diffMean < nyq + bound))
+                mask[positiveIndices] = 1
                 velPossible[positiveIndices] = velPossible[positiveIndices] - nyq
                 
-                negativeIndices = np.where((diffAz != np.nan) & (diffRad != np.nan) & \
-                    (diffMean < -1*(nyq - bound)) & (diffMean > -1*(nyq + bound)))
+                negativeIndices = np.where(((np.isnan(diffAz) != True) & (np.isnan(diffRad) != True)) & \
+                    (diffMean < -1*limit) & (diffMean > -1*(nyq + bound)))
                 velPossible[negativeIndices] = velPossible[negativeIndices] + nyq
+                mask[negativeIndices] = 1
 
                 possibleSolutions[count,:] = velPossible
-                differences[count,:] = velPossible-velSmoothMean
 
                 count+=1
+
+        velSmoothRecompute = np.nanmean(np.array([smoothVel(np.ma.masked_where(mask==1,velNew),radius,radFilter)[0],\
+                smoothVel(np.ma.masked_where(mask==1,velNew).T,azimuth,azFilter)[0].T]),axis=0)
+        differences = np.array([velPoss - velSmoothRecompute for velPoss in possibleSolutions])
 
         differences = np.abs(np.ma.masked_invalid(differences).filled(fill_value=0.))
 
