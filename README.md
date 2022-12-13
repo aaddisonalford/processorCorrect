@@ -10,7 +10,8 @@ This software can be used to correct such processor errors. The Python ARM Radar
 # Citing
 If you use this software to prepare a publicaiton, please cite:
 
-Alford, A. A., M. I. Biggerstaff, C. L. Ziegler, D. P. Jorgensen, and G. D. Carrie (2022): A method for correcting staggered pulse repetition time (PRT) and dual pulse repetition frequency (PRF) processor erorrs in research radar datasets. In review in the Journal of Atmospheric and Oceanic Technology. DOI information to follow.
+Alford, A. A., M. I. Biggerstaff, C. L. Ziegler, D. P. Jorgensen, and G. D. Carrie, 2022: A method for correcting staggered pulse repetition time and dual repetition frequency processor errors in research radar datasets. Journal of Atmospheric and Oceanic Technology, 39, 1763–1780, doi.org/10.1175/JTECH-D-21-
+0176.1.
 
 # Install
 
