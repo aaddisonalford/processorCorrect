@@ -62,7 +62,8 @@ def smoothVel(vel,spatial,filter):
     return velSmooth,diff
 
 
-def errorCorrect(radar,velField = 'VT',fnyq = 0,nyqL=0,nyqH=0,method = 'staggered',plotStats = False, name='figure'):
+def errorCorrect(radar,velField = 'VT',fnyq = 0,nyqL=0,nyqH=0,method = 'staggered',plotStats = False, name='figure',
+                radialFilters = None,azimuthalFilters = None,determineNyqs = False):
 
     '''
     +++ Description +++
@@ -89,6 +90,14 @@ def errorCorrect(radar,velField = 'VT',fnyq = 0,nyqL=0,nyqH=0,method = 'staggere
     name:   If plotStats is True, this can be used as a name for the figure output. For example,
             you may want to utilize the date/time info for each PPI processed by this software.
 
+    radialFilters:  None (default) or a list of int filter lengths over which to iterate. 
+                    Must be a list of the same length as azimuthalFilters.
+
+    azimuthaFilters:    None (default) or a list of int filter lengths over which to iterate.
+
+    determineNyqs:  If True, information from the radar object will be used to compute the low and high
+                    Nyquist velocities from the extended Nyquist velocity. Inputs to nyqL, nyqH, and fnyq will be ignored.
+
     +++ Returns +++
 
     The radar object with the velField corrected for staggered-PRT errors.
@@ -98,11 +107,27 @@ def errorCorrect(radar,velField = 'VT',fnyq = 0,nyqL=0,nyqH=0,method = 'staggere
     # Set method and filter lengths.
     if method == 'staggered':
         staggeredPRT,dualPRF = True,False
-        filters = zip([11,21,5,51,71,5],[5,9,5,21,71,5])
+
+        if (radialFilters != None) and (azimuthalFilters != None):
+            if len(radialFilters) != len(azimuthalFilters):
+                 print("The lenghts of the radial and azimuthal filter lists must be the same.")
+                 sys.exit()
+            else:
+                filters = zip(radialFilters,azimuthalFilters)
+        else:
+            filters = zip([11,21,5,51,71,5],[5,9,5,21,71,5])
 
     elif method == 'dual':
         dualPRF,staggeredPRT = True,False
-        filters = zip([71,11,21,5,51,71,5],[71,5,9,5,21,71,5])
+        if (radialFilters != None) and (azimuthalFilters != None):
+            if len(radialFilters) != len(azimuthalFilters):
+                 print("The lenghts of the radial and azimuthal filter lists must be the same.")
+                 sys.exit()
+            else:
+                filters = zip(radialFilters,azimuthalFilters)
+        else:
+            #Default
+            filters = zip([71,11,21,5,51,71,5],[71,5,9,5,21,71,5])
 
     else:
         print("Method is not recognized.")
@@ -113,7 +138,17 @@ def errorCorrect(radar,velField = 'VT',fnyq = 0,nyqL=0,nyqH=0,method = 'staggere
     
     pointsCaught = 0
     for radFilter,azFilter in filters:
-        for sweep_slice in radar.iter_slice():
+        for sweep_slice,sweepNum in zip(radar.iter_slice(),range(radar.nsweeps)):
+
+            if determineNyqs:
+                nyqL,nyqH,fnyq = retrieveNyqs(radar,sweep_slice,sweepNum)
+
+                #If we get back infinity, the sweep is not dual or staggered.
+                if nyqL == np.inf:
+                    print("Skipping sweep %d. Sweep determined to be single PRF sweep."%sweepNum)
+                    continue
+                else:
+                    print("The low and high Nyquists for sweep %s are %.1f and %.1f."%(sweepNum,nyqL,nyqH))
             
             #### Radial ####
             
@@ -327,54 +362,25 @@ def errorCorrect(radar,velField = 'VT',fnyq = 0,nyqL=0,nyqH=0,method = 'staggere
     #Return the radar object.
     return radar
 
-def getNyq(radar,radarName):
-    nyq = round(radar.get_nyquist_vel(0), 3)
-    freq = radar.instrument_parameters['frequency']['data'].copy()[0]
-    c = 2.9989e8
-    wLen = c/freq
+def retrieveNyqs(radar,sweep_slice,sweepNum):
     
-    if 'DOW' in radarName:
-        vLow = wLen/(radar.instrument_parameters['prt']['data'].copy()[0]*4)
-        if vLow < 1.:
-            tmp = vLow *10**3
-            if tmp < 1. or tmp > 100.:
-                print('You need to check the PRT for DOW.')
-                print('Proceeding with a PRT of %.2f us.'\
-                    %radar.instrument_parameters['prt']['data'].copy()[0])
-                tmp = vLow
-            vLow = tmp
-    elif 'NOXP' in radarName:
-        vLow = wLen/(radar.instrument_parameters['prt']['data'].copy()[0] \
-            * 10**-3 *4)
-        if vLow < 1.:
-            tmp = vLow *10**3
-            if tmp < 1. or tmp > 100.:
-                print('You need to check the PRT for NOXP.')
-                print('Proceeding with a PRT of %.2f us.'\
-                    %radar.instrument_parameters['prt']['data'].copy()[0])
-                tmp = vLow
-            vLow = tmp
-    else:
-        vLow = wLen/(radar.instrument_parameters['prt']['data'].copy()[0]*4)
-        if vLow > nyq:
-            vLow = vLow /3.
-        if vLow > nyq:
-            print('Folding Nyquist cannot be determined.')
-        if vLow < 1.:
-            tmp = vLow *10**3
-            if tmp < 1. or tmp > 100.:
-                print('You need to check the PRT for NOXP.')
-                print('Proceeding with a PRT of %.2f us.'\
-                    %radar.instrument_parameters['prt']['data'].copy()[0])
-                tmp = vLow
-            vLow = tmp
-    ratioLow = nyq/vLow
-    
-    ratioLow = int(np.round(ratioLow,0))
-    ratioHigh = ratioLow + 1
+    #Get the extended Nyquist for the sweep.
+    nyq = radar.get_nyquist_vel(sweepNum)
 
-    vHigh = nyq/ratioHigh
-    
-    foldNyq = vHigh + vLow
+    #We are going to check that the 'prt_ratio' field exists.
+    if 'prt_ratio' in radar.instrument_parameters.keys():
+        
+        #We take the mean because all the radials in a sweep should have the same ratio. If they
+        #don't, that's a really fancy radar.
+        prtRatio = np.nanmean(radar.instrument_parameters['prt_ratio']['data'][sweep_slice])
 
-    return vLow,vHigh,foldNyq
+        #If the prtRatio is infinity, this implies the sweep is single PRF. We ignore.
+        if prtRatio == np.inf:
+            return np.inf,np.inf,np.inf
+        
+        #Determine the integer components of the ratio such that prtRatio = m+1/m
+        m = int(1/(prtRatio-1))
+        
+        vLow,vHigh = nyq/(m+1),nyq/m    
+
+    return vLow,vHigh,vLow+vHigh
